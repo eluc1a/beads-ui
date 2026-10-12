@@ -1,0 +1,12 @@
+[Unit]
+Description=Beads UI: live LAN dependency board for all beads projects
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 %h/tools/beads-ui/server.py --host 0.0.0.0
+Environment=PATH=%h/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

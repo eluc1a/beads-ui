@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Beads Board</title>
+<style>
+:root {
+  --bg: #f6f7f9; --surface: #ffffff; --text: #1d2330; --muted: #6b7280; --line: #d9dde3;
+  --edge: #9aa3af; --epic-bg: #eef1f5; --epic-line: #c9d0da;
+  --st-closed: #2f9e62; --st-in_progress: #d08700; --st-ready: #2f6fde;
+  --st-blocked: #8a8f98; --st-deferred: #8b5cf6;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12151b; --surface: #1b1f27; --text: #e6e8ec; --muted: #9098a5; --line: #2c323d;
+    --edge: #5d6672; --epic-bg: #171b22; --epic-line: #303744;
+    --st-closed: #3fbf7a; --st-in_progress: #f0a92e; --st-ready: #5b93ff;
+    --st-blocked: #7d848f; --st-deferred: #a78bfa;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--text); font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  display: grid; grid-template-rows: auto 1fr; overflow: hidden; }
+
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding: 10px 16px;
+  background: var(--surface); border-bottom: 1px solid var(--line); }
+header h1 { font-size: 14px; margin: 0; font-weight: 600; }
+#legend { position: absolute; left: 16px; bottom: 16px; max-width: calc(100% - 32px); background: var(--surface);
+  border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; box-shadow: 0 4px 14px rgb(0 0 0 / .08); }
+#legend summary { cursor: pointer; font-weight: 600; }
+#legend ul { list-style: none; margin: 8px 0 2px; padding: 0; display: grid; grid-template-columns: auto auto auto; gap: 6px 10px; align-items: center; }
+#legend li { display: contents; }
+#legend b { font-weight: 600; text-align: right; }
+#legend small { color: var(--muted); font-size: 12px; }
+.swatch { width: 26px; height: 16px; border-radius: 4px; background: color-mix(in srgb, var(--c) 13%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--c) 55%, var(--surface)); border-left: 5px solid var(--c); }
+.swatch.epic { background: var(--epic-bg); border: 1px solid var(--epic-line); }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--c); flex: none; }
+.spacer { flex: 1; }
+#status { color: var(--muted); font-size: 12px; }
+#status.err { color: #d33; }
+button, select { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--line);
+  border-radius: 6px; padding: 3px 10px; cursor: pointer; }
+button:hover { border-color: var(--edge); }
+
+main { position: relative; overflow: hidden; }
+svg#graph { width: 100%; height: 100%; display: block; cursor: grab; user-select: none; }
+svg#graph.panning { cursor: grabbing; }
+
+.epic rect { fill: var(--epic-bg); stroke: var(--epic-line); stroke-width: 1.2; }
+.epic text { fill: var(--muted); font-size: 12px; font-weight: 600; cursor: pointer; }
+.epic text:hover { fill: var(--text); }
+.epic.sel rect { stroke: var(--text); stroke-width: 2; }
+
+.edge { fill: none; stroke: var(--edge); stroke-width: 1.3; }
+.edge.hi { stroke: var(--text); stroke-width: 2.2; }
+.has-sel .edge:not(.hi) { opacity: .25; }
+
+.node { cursor: pointer; }
+.node .body { fill: color-mix(in srgb, var(--c) 13%, var(--surface)); stroke: color-mix(in srgb, var(--c) 55%, var(--surface)); stroke-width: 1.2; }
+.node .stripe { fill: var(--c); }
+.node .id { font: 10.5px var(--mono); fill: var(--muted); }
+.node .title { font-size: 12.5px; line-height: 1.35; color: var(--text); overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
+.node.closed .title { color: var(--muted); }
+.node:hover .body { stroke: var(--c); stroke-width: 2; }
+.node.sel .body { stroke: var(--text); stroke-width: 2.4; }
+.has-sel .node:not(.sel):not(.near) { opacity: .45; }
+
+aside { position: absolute; top: 0; right: 0; bottom: 0; width: min(440px, 100%); background: var(--surface);
+  border-left: 1px solid var(--line); overflow-y: auto; padding: 16px 18px 32px;
+  transform: translateX(100%); transition: transform .16s ease; box-shadow: -6px 0 18px rgb(0 0 0 / .08); }
+aside.open { transform: none; }
+aside .top { display: flex; align-items: center; gap: 8px; }
+aside .top code { font: 12px var(--mono); color: var(--muted); }
+aside h2 { font-size: 17px; line-height: 1.3; margin: 8px 0 10px; }
+.badges { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.badge { display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px; border-radius: 99px;
+  border: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+.badge.state { color: var(--text); border-color: var(--c); background: color-mix(in srgb, var(--c) 14%, transparent); }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0 0 16px; }
+dt { color: var(--muted); }
+dd { margin: 0; }
+aside h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 18px 0 6px; }
+.text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.callout { border-left: 3px solid var(--st-closed); background: color-mix(in srgb, var(--st-closed) 9%, transparent);
+  padding: 8px 10px; border-radius: 0 6px 6px 0; }
+ul.links { list-style: none; padding: 0; margin: 0; }
+ul.links li { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 6px; cursor: pointer; }
+ul.links li:hover { background: var(--bg); }
+ul.links code { font: 11.5px var(--mono); color: var(--muted); flex: none; }
+.empty { color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Beads</h1>
+  <select id="project" aria-label="Project"></select>
+  <div class="spacer"></div>
+  <span id="status">loading…</span>
+  <button id="fit" type="button">Fit</button>
+</header>
+<main>
+  <svg id="graph" aria-label="Bead dependency graph">
+    <defs>
+      <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0L10 5L0 10z" fill="var(--edge)"/>
+      </marker>
+    </defs>
+    <g id="viewport"></g>
+  </svg>
+  <details id="legend" open><summary>Legend</summary><ul></ul></details>
+  <aside id="side" aria-live="polite"></aside>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/elkjs@0.9.3/lib/elk.bundled.js"></script>
+<script src="graph.js"></script>
+<script>
+const STATES = ['in_progress', 'ready', 'blocked', 'deferred', 'closed'];
+const LABEL = { in_progress: 'In progress', ready: 'Ready', blocked: 'Blocked', deferred: 'Deferred', closed: 'Closed' };
+const MEANING = {
+  in_progress: 'Claimed, work is under way',
+  ready: 'Open, all blockers closed: can start now',
+  blocked: 'Open, waits on an open blocker',
+  deferred: 'Postponed until a later date',
+  closed: 'Done',
+};
+const POLL_MS = 5000;
+const SVGNS = 'http://www.w3.org/2000/svg';
+const svg = document.getElementById('graph');
+const vp = document.getElementById('viewport');
+const side = document.getElementById('side');
+const elk = new ELK();
+
+let issues = [], byId = new Map(), states = new Map(), pos = new Map();
+let project = new URLSearchParams(location.search).get('p');
+let lastRaw = '', selected = null, view = { x: 20, y: 20, k: 1 }, fitted = false;
+
+// ---------- helpers ----------
+const el = (tag, attrs = {}, parent) => {
+  const n = document.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+  if (parent) parent.appendChild(n);
+  return n;
+};
+const h = (tag, props = {}, ...kids) => {
+  const n = Object.assign(document.createElement(tag), props);
+  for (const k of kids) if (k != null) n.append(k);
+  return n;
+};
+const cvar = (s) => `--c: var(--st-${s})`;
+const clip = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
+const fmt = (t) => (t ? new Date(t).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : null);
+function dur(a, b) {
+  if (!a || !b) return null;
+  const m = Math.round((new Date(b) - new Date(a)) / 60000);
+  if (m < 60) return `${m} min`;
+  if (m < 48 * 60) return `${(m / 60).toFixed(1)} h`;
+  return `${(m / 1440).toFixed(1)} days`;
+}
+
+// ---------- data ----------
+async function poll() {
+  const status = document.getElementById('status');
+  try {
+    const res = await fetch('/api/beads?p=' + encodeURIComponent(project), { cache: 'no-store' });
+    const raw = await res.text();
+    if (!res.ok) throw new Error(raw.trim() || res.statusText);
+    status.textContent = 'updated ' + new Date().toLocaleTimeString();
+    status.className = '';
+    if (raw === lastRaw) return;
+    lastRaw = raw;
+    issues = JSON.parse(raw);
+    byId = new Map(issues.map((i) => [i.id, i]));
+    states = deriveStates(issues);
+    renderLegend();
+    await renderGraph();
+    if (selected && byId.has(selected)) showSide(selected); else closeSide();
+  } catch (e) {
+    status.textContent = 'error: ' + e.message.split('\n')[0];
+    status.className = 'err';
+  }
+}
+
+function renderLegend() {
+  const counts = {};
+  for (const s of states.values()) counts[s] = (counts[s] || 0) + 1;
+  const row = (swatch, label, meaning, count) =>
+    h('li', {}, swatch, h('div', {}, label, h('br'), h('small', { textContent: meaning })), h('b', { textContent: count ?? '' }));
+  const arrow = h('span', { innerHTML: '<svg width="26" height="16"><path d="M1 8H19" stroke="var(--edge)" stroke-width="1.5"/><path d="M18 3L25 8L18 13z" fill="var(--edge)"/></svg>' });
+  document.querySelector('#legend ul').replaceChildren(
+    ...STATES.map((s) => row(h('span', { className: 'swatch', style: cvar(s) }), LABEL[s], MEANING[s], counts[s] || 0)),
+    row(arrow, 'Arrow', 'A → B: A must close before B'),
+    row(h('span', { className: 'swatch epic' }), 'Epic box', 'Beads inside belong to that epic'));
+}
+
+// ---------- graph ----------
+async function renderGraph() {
+  const out = await elk.layout(buildElkGraph(issues));
+  pos = new Map();
+  const walk = (n, ox, oy) => {
+    for (const c of n.children || []) {
+      const r = { x: ox + c.x, y: oy + c.y, w: c.width, h: c.height, epic: !!c.labels };
+      pos.set(c.id, r);
+      walk(c, r.x, r.y);
+    }
+  };
+  walk(out, 0, 0);
+
+  vp.replaceChildren();
+  const gEpics = el('g', {}, vp), gEdges = el('g', {}, vp), gNodes = el('g', {}, vp);
+
+  for (const [id, r] of pos) {
+    if (!r.epic) continue;
+    const e = byId.get(id), s = states.get(id);
+    const g = el('g', { class: 'epic', 'data-id': id }, gEpics);
+    el('rect', { x: r.x, y: r.y, width: r.w, height: r.h, rx: 10 }, g);
+    el('circle', { cx: r.x + 16, cy: r.y + 17, r: 5, style: `fill: var(--st-${s})` }, g);
+    const t = el('text', { x: r.x + 28, y: r.y + 21 }, g);
+    t.textContent = `${id}  ${clip(e.title, Math.max(12, Math.floor((r.w - 50) / 7)))}`;
+    t.addEventListener('click', (ev) => { ev.stopPropagation(); select(id); });
+  }
+
+  for (const e of out.edges) {
+    const c = pos.get(e.container) || { x: 0, y: 0 };
+    const sec = e.sections[0];
+    const pts = [sec.startPoint, ...(sec.bendPoints || []), sec.endPoint];
+    const d = pts.map((p, i) => `${i ? 'L' : 'M'}${p.x + c.x},${p.y + c.y}`).join('');
+    el('path', { class: 'edge', d, 'marker-end': 'url(#arrow)', 'data-src': e.sources[0], 'data-tgt': e.targets[0] }, gEdges);
+  }
+
+  for (const [id, r] of pos) {
+    if (r.epic) continue;
+    const i = byId.get(id), s = states.get(id);
+    const g = el('g', { class: `node ${s}`, 'data-id': id, style: cvar(s), transform: `translate(${r.x},${r.y})` }, gNodes);
+    el('title', {}, g).textContent = `${id} — ${i.title} (${LABEL[s] || s})`;
+    el('rect', { class: 'body', width: r.w, height: r.h, rx: 7 }, g);
+    el('rect', { class: 'stripe', width: 5, height: r.h - 2, x: 1, y: 1, rx: 2 }, g);
+    el('text', { class: 'id', x: 14, y: 19 }, g).textContent = `${id} · ${i.issue_type} · P${i.priority}`;
+    const fo = el('foreignObject', { x: 14, y: 26, width: r.w - 22, height: r.h - 30 }, g);
+    fo.appendChild(h('div', { className: 'title', textContent: i.title }));
+    g.addEventListener('click', (ev) => { ev.stopPropagation(); select(id); });
+  }
+
+  if (!fitted) { startView(); fitted = true; } else applyView();
+  highlight();
+}
+
+function highlight() {
+  vp.classList.toggle('has-sel', !!selected);
+  const near = new Set();
+  vp.querySelectorAll('.edge').forEach((p) => {
+    const on = selected && (p.dataset.src === selected || p.dataset.tgt === selected);
+    p.classList.toggle('hi', !!on);
+    if (on) { near.add(p.dataset.src); near.add(p.dataset.tgt); }
+  });
+  vp.querySelectorAll('.node, .epic').forEach((n) => {
+    n.classList.toggle('sel', n.dataset.id === selected);
+    n.classList.toggle('near', near.has(n.dataset.id));
+  });
+}
+
+// ---------- pan / zoom ----------
+function applyView() { vp.setAttribute('transform', `translate(${view.x},${view.y}) scale(${view.k})`); }
+function fit() {
+  const b = vp.getBBox(), W = svg.clientWidth, H = svg.clientHeight;
+  if (!b.width) return;
+  view.k = Math.min(1.2, (W - 40) / b.width, (H - 40) / b.height);
+  view.x = (W - b.width * view.k) / 2 - b.x * view.k;
+  view.y = (H - b.height * view.k) / 2 - b.y * view.k;
+  applyView();
+}
+// The graph is far wider than tall, so a full fit makes text unreadable:
+// fit the height, start at the left edge, and let the user pan right.
+function startView() {
+  const b = vp.getBBox(), H = svg.clientHeight;
+  if (!b.height) return;
+  view.k = Math.max(0.8, Math.min(1, (H - 40) / b.height));
+  const lg = document.getElementById('legend');
+  view.x = 20 + (lg.open ? lg.offsetWidth + 16 : 0) - b.x * view.k;
+  // Center vertically on the beads that fit in the first screen width.
+  const shown = [...pos.values()].filter((r) => (r.x + r.w) * view.k + view.x < svg.clientWidth);
+  const top = Math.min(...shown.map((r) => r.y)), bottom = Math.max(...shown.map((r) => r.y + r.h));
+  view.y = Math.max(20 - top * view.k, (H - (top + bottom) * view.k) / 2);
+  applyView();
+}
+function centerOn(id) {
+  const r = pos.get(id);
+  if (!r) return;
+  const visibleW = svg.clientWidth - (side.classList.contains('open') ? side.clientWidth : 0);
+  view.k = Math.max(view.k, 0.8);
+  view.x = visibleW / 2 - (r.x + r.w / 2) * view.k;
+  view.y = svg.clientHeight / 2 - (r.y + r.h / 2) * view.k;
+  applyView();
+}
+svg.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const pt = svg.getBoundingClientRect();
+  const mx = e.clientX - pt.left, my = e.clientY - pt.top;
+  const k = Math.min(3, Math.max(0.1, view.k * Math.exp(-e.deltaY * 0.0015)));
+  view.x = mx - ((mx - view.x) * k) / view.k;
+  view.y = my - ((my - view.y) * k) / view.k;
+  view.k = k;
+  applyView();
+}, { passive: false });
+let drag = null;
+svg.addEventListener('pointerdown', (e) => {
+  drag = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y, moved: false };
+});
+window.addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  if (!drag.moved && Math.hypot(dx, dy) < 4) return;
+  drag.moved = true;
+  svg.classList.add('panning');
+  view.x = drag.vx + dx; view.y = drag.vy + dy;
+  applyView();
+});
+window.addEventListener('pointerup', () => { svg.classList.remove('panning'); setTimeout(() => (drag = null)); });
+svg.addEventListener('click', () => { if (!drag || !drag.moved) closeSide(); });
+document.getElementById('fit').addEventListener('click', fit);
+window.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSide(); });
+
+// ---------- sidebar ----------
+function select(id) {
+  if (drag && drag.moved) return;
+  selected = id;
+  showSide(id);
+  highlight();
+}
+function closeSide() {
+  selected = null;
+  side.classList.remove('open');
+  highlight();
+}
+function linkList(ids) {
+  if (!ids.length) return h('p', { className: 'empty', textContent: 'None' });
+  return h('ul', { className: 'links' }, ...ids.map((id) => {
+    const i = byId.get(id), s = states.get(id);
+    const li = h('li', { title: LABEL[s] || s },
+      h('i', { className: 'dot', style: cvar(s) }), h('code', { textContent: id }),
+      h('span', { textContent: i ? i.title : '(missing)' }));
+    li.addEventListener('click', () => { if (i) { select(id); centerOn(id); } });
+    return li;
+  }));
+}
+function section(title, ...body) { return [h('h3', { textContent: title }), ...body]; }
+function textSection(title, txt) { return txt ? section(title, h('div', { className: 'text', textContent: txt })) : []; }
+
+function showSide(id) {
+  const i = byId.get(id), s = states.get(id);
+  const deps = i.dependencies || [];
+  const blockedBy = deps.filter((d) => d.type === 'blocks').map((d) => d.depends_on_id);
+  const blocks = issues.filter((x) => (x.dependencies || []).some((d) => d.type === 'blocks' && d.depends_on_id === id)).map((x) => x.id);
+  const children = issues.filter((x) => x.parent === id).map((x) => x.id);
+
+  const facts = [
+    ['Assignee', i.assignee], ['Owner', i.owner], ['Created', fmt(i.created_at)], ['Started', fmt(i.started_at)],
+    ['Closed', fmt(i.closed_at)], ['Work time', dur(i.started_at, i.closed_at)],
+    ['Lead time', i.closed_at ? dur(i.created_at, i.closed_at) : null], ['Updated', fmt(i.updated_at)],
+  ].filter(([, v]) => v);
+
+  const top = h('div', { className: 'top' }, h('code', { textContent: id }), h('div', { className: 'spacer' }),
+    h('button', { type: 'button', textContent: 'Close', onclick: closeSide }));
+  const parent = i.parent && byId.get(i.parent);
+  const kids = [];
+  if (children.length) {
+    const done = children.filter((c) => states.get(c) === 'closed').length;
+    kids.push(...section(`Children · ${done}/${children.length} closed`, linkList(children)));
+  }
+
+  side.replaceChildren(
+    top,
+    h('h2', { textContent: i.title }),
+    h('div', { className: 'badges' },
+      h('span', { className: 'badge state', style: cvar(s) }, h('i', { className: 'dot', style: cvar(s) }), LABEL[s] || s),
+      h('span', { className: 'badge', textContent: i.issue_type }),
+      h('span', { className: 'badge', textContent: 'P' + i.priority }),
+      ...(i.labels || []).map((l) => h('span', { className: 'badge', textContent: l }))),
+    h('dl', {}, ...facts.flatMap(([k, v]) => [h('dt', { textContent: k }), h('dd', { textContent: v })])),
+    ...(i.close_reason ? section('Close reason', h('div', { className: 'text callout', textContent: i.close_reason })) : []),
+    ...textSection('Description', i.description),
+    ...textSection('Acceptance criteria', i.acceptance_criteria),
+    ...textSection('Design', i.design),
+    ...textSection('Notes', i.notes),
+    ...(parent ? section('Epic', linkList([parent.id])) : []),
+    ...kids,
+    ...section('Blocked by', linkList(blockedBy)),
+    ...section('Blocks', linkList(blocks)),
+  );
+  side.classList.add('open');
+}
+
+async function init() {
+  const names = await (await fetch('/api/projects')).json();
+  if (!names.length) { document.getElementById('status').textContent = 'no beads projects found'; return; }
+  if (!names.includes(project)) project = names[0];
+  const pick = document.getElementById('project');
+  pick.replaceChildren(...names.map((n) => h('option', { value: n, textContent: n })));
+  pick.value = project;
+  pick.addEventListener('change', () => { location.search = '?p=' + encodeURIComponent(pick.value); });
+  document.title = `Beads · ${project}`;
+  poll();
+  setInterval(poll, POLL_MS);
+}
+init();
+</script>
+</body>
+</html>
